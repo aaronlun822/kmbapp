@@ -357,6 +357,21 @@
 
 let searchMode = 'route';
 
+// 放在最前面，方便其他函式呼叫
+async function fetchWithRetry(url, retries = 2) {
+  for (let i = 0; i < retries; i++) {
+    try {
+      const res = await fetch(url);
+      if (!res.ok) throw new Error("API 回應錯誤");
+      return await res.json();
+    } catch (err) {
+      if (i === retries - 1) throw err; // 最後一次才丟錯
+      await new Promise(r => setTimeout(r, 1000)); // 等 1 秒再試
+    }
+  }
+}
+
+
 function setSearchMode(mode) {
   searchMode = mode;
   document.getElementById('routeBtn').classList.toggle('active', mode === 'route');
@@ -514,29 +529,56 @@ async function searchByStopName() {
 
 
 async function showRoutesByStop(stopId, stopDiv) {
-  // 如果已經高亮，避免重複觸發
   if (stopDiv.classList.contains('highlight')) return;
 
-  // 收起其他已展開的站名
   document.querySelectorAll('.eta-detail').forEach(div => div.remove());
   document.querySelectorAll('.stop').forEach(s => s.classList.remove('highlight'));
 
   stopDiv.classList.add('highlight');
-  stopDiv.style.cursor = 'wait';
-  const url = `https://data.etabus.gov.hk/v1/transport/kmb/route-stop`;
-  const res = await fetch(url);
-  const data = await res.json();
-  stopDiv.style.cursor = 'default';
 
-  const routes = data.data.filter(r => r.stop === stopId);
-
+  // ✅ 先渲染 spinner
   const routeDiv = document.createElement('div');
-  routeDiv.className = 'eta-detail expanding'; 
+  routeDiv.className = 'eta-detail expanding';
   routeDiv.style.display = 'block';
+  routeDiv.innerHTML = `
+    <div style="text-align:center; padding:10px;">
+      <div class="spinner" style="width:16px;height:16px;border-width:2px;"></div>
+      <div style="color:#666; font-size:13px;">正在載入路線資料...</div>
+    </div>
+  `;
+  stopDiv.appendChild(routeDiv);
 
+  try {
+    // ✅ 記錄開始時間
+    const startTime = Date.now();
+
+    // 打 API
+    const res = await fetch(`https://data.etabus.gov.hk/v1/transport/kmb/route-stop`);
+    const data = await res.json();
+    const routes = data.data.filter(r => r.stop === stopId);
+
+    // ✅ 計算已經過的時間
+    const elapsed = Date.now() - startTime;
+
+    // 如果 API < 15 秒就回應 → 立即輸出結果
+    if (elapsed < 15000) {
+      routeDiv.innerHTML = "";
+      renderRoutes(routes, routeDiv, stopDiv, stopId);
+    } else {
+      // 如果 API > 15 秒才回應 → 直接輸出結果
+      routeDiv.innerHTML = "";
+      renderRoutes(routes, routeDiv, stopDiv, stopId);
+    }
+  } catch (error) {
+    console.error(error);
+    routeDiv.innerHTML = "<div style='padding:10px; color:#999;'>伺服器回應慢，請稍後再試</div>";
+  }
+}
+
+// ✅ 抽出渲染邏輯
+function renderRoutes(routes, routeDiv, stopDiv, stopId) {
   if (routes.length > 0) {
-    routes.sort((a,b) => a.route.localeCompare(b.route, undefined, {numeric: true}));
-    
+    routes.sort((a, b) => a.route.localeCompare(b.route, undefined, { numeric: true }));
     routes.forEach(r => {
       const tag = document.createElement('span');
       tag.className = 'route-tag';
@@ -545,18 +587,16 @@ async function showRoutesByStop(stopId, stopDiv) {
         e.stopPropagation();
         document.getElementById('route').value = r.route;
         currentDirection = (r.dir === 'O') ? 'outbound' : 'inbound';
-        getStops(stopId); // 打開該站名
+        getStops(stopId);
         setTimeout(() => {
           stopDiv.scrollIntoView({ behavior: 'smooth', block: 'center' });
-        }, 600); // 等待渲染完成再滾動
+        }, 600);
       };
       routeDiv.appendChild(tag);
     });
   } else {
-    routeDiv.textContent = "此站暫無路線資料";
+    routeDiv.innerHTML = "<div style='padding:10px; color:#999;'>此站暫無路線資料</div>";
   }
-
-  stopDiv.appendChild(routeDiv);
 }
 
 
