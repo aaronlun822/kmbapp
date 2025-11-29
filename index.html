@@ -91,6 +91,22 @@
       background: #fff3e0;
       border-left: 4px solid #ff9800;
     }
+	/* ETA 區塊收合動畫 */
+	.eta-detail {
+	  max-height: 500px;
+	  overflow: hidden;
+	  transition: max-height 0.5s ease, opacity 0.5s ease;
+	  opacity: 1;
+	}
+	.eta-detail.collapsing {
+	  max-height: 0;
+	  opacity: 0;
+	}
+	.eta-detail.expanding {
+	  max-height: 500px; /* 足夠容納內容 */
+	  opacity: 1;
+	}
+
   </style>
 </head>
 <body>
@@ -237,8 +253,11 @@
 
         const etaList = data.data || [];
 		
-		// 收起其他已展開的站
-		document.querySelectorAll('.eta-detail').forEach(div => div.remove());
+		// 收起其他已展開的站（加動畫）
+		document.querySelectorAll('.eta-detail').forEach(div => {
+		  div.classList.add('collapsing');
+		  setTimeout(() => div.remove(), 500); // 等動畫結束再移除
+		});
 		document.querySelectorAll('.stop').forEach(s => s.classList.remove('highlight'));
 
         const oldEtaDetail = stopDiv.querySelector('.eta-detail');
@@ -249,9 +268,14 @@
           countdownTimers.delete(stopDiv);
         }
 
-        const etaDiv = document.createElement('div');
-        etaDiv.className = 'eta-detail';
-        stopDiv.appendChild(etaDiv);
+const etaDiv = document.createElement('div');
+etaDiv.className = 'eta-detail';
+stopDiv.appendChild(etaDiv);
+
+// 觸發展開動畫
+requestAnimationFrame(() => {
+  etaDiv.classList.add('expanding');
+});
 
         const listForDir = etaList.filter(e => e.dir === dir);
 
