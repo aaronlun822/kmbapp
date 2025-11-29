@@ -3,42 +3,42 @@
 <head>
   <meta charset="UTF-8">
   <title>九巴到站查詢</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <style>
     body {
       font-family: "Microsoft JhengHei", Arial, sans-serif;
-      margin: 20px;
+      margin: 10px;
       background: #f9f9f9;
       color: #333;
     }
     h1 {
       text-align: center;
       color: #d32f2f;
+      font-size: clamp(20px, 6vw, 28px); /* 桌面正常，手機自適應 */
     }
-    label {
-      font-size: 16px;
-      margin-right: 10px;
+    label, input, button {
+      font-size: clamp(14px, 4vw, 18px);
     }
     input {
       padding: 5px;
-      font-size: 16px;
-      width: 80px;
+      width: clamp(80px, 30vw, 120px);
       text-align: center;
     }
     button {
-      padding: 6px 12px;
+      padding: 8px 12px;
       margin: 5px;
-      font-size: 14px;
       background: #d32f2f;
       color: white;
       border: none;
       border-radius: 4px;
       cursor: pointer;
+      font-size: clamp(14px, 4vw, 18px);
     }
     button:hover {
       background: #b71c1c;
     }
     #stops {
-      margin-top: 20px;
+      margin-top: 15px;
       background: white;
       border-radius: 6px;
       padding: 10px;
@@ -49,19 +49,21 @@
       border-bottom: 1px solid #eee;
       cursor: pointer;
       transition: background 0.2s;
+      font-size: clamp(14px, 4vw, 18px);
+      word-wrap: break-word;
     }
     .stop:hover {
       background: #f1f1f1;
     }
     .eta {
       margin-top: 5px;
-      padding-left: 20px;
-      font-size: 14px;
+      padding-left: 10px;
+      font-size: clamp(12px, 3.5vw, 16px);
       color: #2e7d32;
     }
     .eta span {
-      display: inline-block;
-      margin-right: 10px;
+      display: block;
+      margin: 5px 0;
       background: #e8f5e9;
       padding: 4px 8px;
       border-radius: 4px;
@@ -82,7 +84,6 @@
     let currentDirection = 'outbound'; // outbound = 去程, inbound = 回程
     const serviceType = 1; // 一般路線都是 1
 
-    // 查詢站點名稱 (中文 + 英文)
     async function getStopName(stopId) {
       const url = `https://data.etabus.gov.hk/v1/transport/kmb/stop/${stopId}`;
       try {
@@ -99,11 +100,8 @@
       }
     }
 
-    // 查詢路線站點
     async function getStops() {
-      const route = document.getElementById('route').value.trim();
-
-      // 先查路線資訊，取得起點和終點
+	  const route = document.getElementById('route').value.trim().toUpperCase();
       const routeInfoUrl = `https://data.etabus.gov.hk/v1/transport/kmb/route/${route}/${currentDirection}/${serviceType}`;
       const routeInfoRes = await fetch(routeInfoUrl);
       const routeInfoData = await routeInfoRes.json();
@@ -118,11 +116,11 @@
         const data = await response.json();
 
         const stopsDiv = document.getElementById('stops');
-        stopsDiv.innerHTML = `<h2>${titleText}</h2>`;
+        stopsDiv.innerHTML = `<h2 style="font-size:clamp(16px,5vw,22px);text-align:center;">${titleText}</h2>`;
 
         if (data.data && data.data.length > 0) {
           for (const stop of data.data) {
-            const stopName = await getStopName(stop.stop); // 轉換成站名
+            const stopName = await getStopName(stop.stop);
             const stopDiv = document.createElement('div');
             stopDiv.className = 'stop';
             stopDiv.textContent = `${stop.seq}. ${stopName}`;
@@ -138,7 +136,6 @@
       }
     }
 
-    // 查詢即時到站時間 (顯示剩餘時間，分秒更新)
     async function getETA(stopId, route, stopDiv) {
       const url = `https://data.etabus.gov.hk/v1/transport/kmb/eta/${stopId}/${route}/${serviceType}`;
       try {
@@ -153,7 +150,7 @@
         etaDiv.className = 'eta';
 
         if (etaList && etaList.length > 0) {
-          etaList.forEach((e, index) => {
+          etaList.forEach(e => {
             const span = document.createElement('span');
             if (e.eta) {
               const etaTime = new Date(e.eta);
@@ -184,7 +181,6 @@
       }
     }
 
-    // 切換方向
     function toggleDirection() {
       currentDirection = currentDirection === 'outbound' ? 'inbound' : 'outbound';
       getStops();
