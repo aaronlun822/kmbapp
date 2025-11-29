@@ -1,0 +1,194 @@
+<!DOCTYPE html>
+<html lang="zh-HK">
+<head>
+  <meta charset="UTF-8">
+  <title>九巴到站查詢</title>
+  <style>
+    body {
+      font-family: "Microsoft JhengHei", Arial, sans-serif;
+      margin: 20px;
+      background: #f9f9f9;
+      color: #333;
+    }
+    h1 {
+      text-align: center;
+      color: #d32f2f;
+    }
+    label {
+      font-size: 16px;
+      margin-right: 10px;
+    }
+    input {
+      padding: 5px;
+      font-size: 16px;
+      width: 80px;
+      text-align: center;
+    }
+    button {
+      padding: 6px 12px;
+      margin: 5px;
+      font-size: 14px;
+      background: #d32f2f;
+      color: white;
+      border: none;
+      border-radius: 4px;
+      cursor: pointer;
+    }
+    button:hover {
+      background: #b71c1c;
+    }
+    #stops {
+      margin-top: 20px;
+      background: white;
+      border-radius: 6px;
+      padding: 10px;
+      box-shadow: 0 2px 6px rgba(0,0,0,0.1);
+    }
+    .stop {
+      padding: 10px;
+      border-bottom: 1px solid #eee;
+      cursor: pointer;
+      transition: background 0.2s;
+    }
+    .stop:hover {
+      background: #f1f1f1;
+    }
+    .eta {
+      margin-top: 5px;
+      padding-left: 20px;
+      font-size: 14px;
+      color: #2e7d32;
+    }
+    .eta span {
+      display: inline-block;
+      margin-right: 10px;
+      background: #e8f5e9;
+      padding: 4px 8px;
+      border-radius: 4px;
+    }
+  </style>
+</head>
+<body>
+  <h1>九巴到站查詢</h1>
+  <div style="text-align:center;">
+    <label>路線號碼: <input type="text" id="route" value="1A"></label>
+    <button onclick="getStops()">查詢</button>
+    <button onclick="toggleDirection()">更換方向</button>
+  </div>
+
+  <div id="stops"></div>
+
+  <script>
+    let currentDirection = 'outbound'; // outbound = 去程, inbound = 回程
+    const serviceType = 1; // 一般路線都是 1
+
+    // 查詢站點名稱 (中文 + 英文)
+    async function getStopName(stopId) {
+      const url = `https://data.etabus.gov.hk/v1/transport/kmb/stop/${stopId}`;
+      try {
+        const response = await fetch(url);
+        const data = await response.json();
+        if (data.data) {
+          return `${data.data.name_tc} / ${data.data.name_en}`;
+        } else {
+          return stopId;
+        }
+      } catch (error) {
+        console.error(error);
+        return stopId;
+      }
+    }
+
+    // 查詢路線站點
+    async function getStops() {
+      const route = document.getElementById('route').value.trim();
+
+      // 先查路線資訊，取得起點和終點
+      const routeInfoUrl = `https://data.etabus.gov.hk/v1/transport/kmb/route/${route}/${currentDirection}/${serviceType}`;
+      const routeInfoRes = await fetch(routeInfoUrl);
+      const routeInfoData = await routeInfoRes.json();
+      let titleText = `路線 ${route}`;
+      if (routeInfoData.data) {
+        titleText = `${routeInfoData.data.orig_tc} → ${routeInfoData.data.dest_tc}`;
+      }
+
+      const url = `https://data.etabus.gov.hk/v1/transport/kmb/route-stop/${route}/${currentDirection}/${serviceType}`;
+      try {
+        const response = await fetch(url);
+        const data = await response.json();
+
+        const stopsDiv = document.getElementById('stops');
+        stopsDiv.innerHTML = `<h2>${titleText}</h2>`;
+
+        if (data.data && data.data.length > 0) {
+          for (const stop of data.data) {
+            const stopName = await getStopName(stop.stop); // 轉換成站名
+            const stopDiv = document.createElement('div');
+            stopDiv.className = 'stop';
+            stopDiv.textContent = `${stop.seq}. ${stopName}`;
+            stopDiv.onclick = () => getETA(stop.stop, route, stopDiv);
+            stopsDiv.appendChild(stopDiv);
+          }
+        } else {
+          stopsDiv.innerHTML += "<p>找不到車站資料</p>";
+        }
+      } catch (error) {
+        console.error(error);
+        document.getElementById('stops').innerHTML = "<p>查詢失敗</p>";
+      }
+    }
+
+    // 查詢即時到站時間 (顯示剩餘時間，分秒更新)
+    async function getETA(stopId, route, stopDiv) {
+      const url = `https://data.etabus.gov.hk/v1/transport/kmb/eta/${stopId}/${route}/${serviceType}`;
+      try {
+        const response = await fetch(url);
+        const data = await response.json();
+
+        const etaList = data.data;
+        const oldEta = stopDiv.querySelector('.eta');
+        if (oldEta) oldEta.remove();
+
+        const etaDiv = document.createElement('div');
+        etaDiv.className = 'eta';
+
+        if (etaList && etaList.length > 0) {
+          etaList.forEach((e, index) => {
+            const span = document.createElement('span');
+            if (e.eta) {
+              const etaTime = new Date(e.eta);
+              function updateCountdown() {
+                const now = new Date();
+                const diff = etaTime - now;
+                if (diff > 0) {
+                  const minutes = Math.floor(diff / 60000);
+                  const seconds = Math.floor((diff % 60000) / 1000);
+                  span.textContent = `🚌 ${minutes}分${seconds}秒 → ${e.dest_tc}`;
+                } else {
+                  span.textContent = "🚌 已到站";
+                }
+              }
+              updateCountdown();
+              setInterval(updateCountdown, 1000);
+            } else {
+              span.textContent = "暫無班次";
+            }
+            etaDiv.appendChild(span);
+          });
+        } else {
+          etaDiv.textContent = "暫無班次";
+        }
+        stopDiv.appendChild(etaDiv);
+      } catch (error) {
+        console.error(error);
+      }
+    }
+
+    // 切換方向
+    function toggleDirection() {
+      currentDirection = currentDirection === 'outbound' ? 'inbound' : 'outbound';
+      getStops();
+    }
+  </script>
+</body>
+</html>
