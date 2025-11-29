@@ -7,21 +7,38 @@
   <style>
     body {
       font-family: "Microsoft JhengHei", Arial, sans-serif;
-      margin: 10px;
+      margin: 0;
       background: #f9f9f9;
       color: #333;
     }
     h1 {
       text-align: center;
       color: #d32f2f;
-      font-size: clamp(20px, 6vw, 28px); /* 桌面正常，手機自適應 */
+      font-size: clamp(20px, 6vw, 28px);
+      margin: 10px 0;
+    }
+    /* 固定工具列 */
+    #toolbar {
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      background: #fff;
+      padding: 10px;
+      box-shadow: 0 2px 6px rgba(0,0,0,0.1);
+      z-index: 1000;
+      text-align: center;
+    }
+    #content {
+      margin-top: 100px; /* 預留工具列高度 */
+      padding: 10px;
     }
     label, input, button {
       font-size: clamp(14px, 4vw, 18px);
     }
     input {
       padding: 5px;
-      width: clamp(80px, 30vw, 120px);
+      width: clamp(120px, 40vw, 200px);
       text-align: center;
     }
     button {
@@ -55,34 +72,45 @@
     .stop:hover {
       background: #f1f1f1;
     }
-    .eta {
+    .eta, .eta-detail {
       margin-top: 5px;
       padding-left: 10px;
       font-size: clamp(12px, 3.5vw, 16px);
       color: #2e7d32;
     }
-    .eta span {
+    .eta span, .eta-detail span {
       display: block;
       margin: 5px 0;
       background: #e8f5e9;
       padding: 4px 8px;
       border-radius: 4px;
+      cursor: pointer;
+    }
+    /* 高亮顯示已展開的站 */
+    .highlight {
+      background: #fff3e0;
+      border-left: 4px solid #ff9800;
     }
   </style>
 </head>
 <body>
-  <h1>九巴到站查詢</h1>
-  <div style="text-align:center;">
-    <label>路線號碼: <input type="text" id="route" value="1A"></label>
-    <button onclick="getStops()">查詢</button>
+  <div id="toolbar">
+    <h1>九巴到站查詢</h1>
+    <label>
+      <input type="text" id="route" placeholder="請輸入路線或站名">
+    </label>
+    <button onclick="getStops()">查詢路線</button>
+    <button onclick="searchByStopName()">搜尋站名</button>
     <button onclick="toggleDirection()">更換方向</button>
   </div>
 
-  <div id="stops"></div>
-
+  <div id="content">
+    <div id="stops"></div>
+  </div>
   <script>
     let currentDirection = 'outbound'; // outbound = 去程, inbound = 回程
     const serviceType = 1; // 一般路線都是 1
+    const countdownTimers = new Map();
 
     async function getStopName(stopId) {
       const url = `https://data.etabus.gov.hk/v1/transport/kmb/stop/${stopId}`;
@@ -100,8 +128,8 @@
       }
     }
 
-    async function getStops() {
-	  const route = document.getElementById('route').value.trim().toUpperCase();
+    async function getStops(highlightStopId = null) {
+      const route = document.getElementById('route').value.trim().toUpperCase();
       const routeInfoUrl = `https://data.etabus.gov.hk/v1/transport/kmb/route/${route}/${currentDirection}/${serviceType}`;
       const routeInfoRes = await fetch(routeInfoUrl);
       const routeInfoData = await routeInfoRes.json();
@@ -124,8 +152,13 @@
             const stopDiv = document.createElement('div');
             stopDiv.className = 'stop';
             stopDiv.textContent = `${stop.seq}. ${stopName}`;
-            stopDiv.onclick = () => getETA(stop.stop, route, stopDiv);
+            stopDiv.onclick = () => getETA(stop.stop, route, stopDiv, currentDirection === 'outbound' ? 'O' : 'I');
             stopsDiv.appendChild(stopDiv);
+
+            // 如果有 highlightStopId，則自動展開該站
+            if (highlightStopId && stop.stop === highlightStopId) {
+              getETA(stop.stop, route, stopDiv, currentDirection === 'outbound' ? 'O' : 'I');
+            }
           }
         } else {
           stopsDiv.innerHTML += "<p>找不到車站資料</p>";
@@ -135,49 +168,147 @@
         document.getElementById('stops').innerHTML = "<p>查詢失敗</p>";
       }
     }
+    async function searchByStopName() {
+      const keyword = document.getElementById('route').value.trim();
+      if (!keyword) return;
 
-    async function getETA(stopId, route, stopDiv) {
+      const stopsUrl = `https://data.etabus.gov.hk/v1/transport/kmb/stop`;
+      const stopsRes = await fetch(stopsUrl);
+      const stopsData = await stopsRes.json();
+
+      const matchedStops = stopsData.data.filter(s =>
+        s.name_tc.includes(keyword) || s.name_en.toLowerCase().includes(keyword.toLowerCase())
+      );
+
+      const stopsDiv = document.getElementById('stops');
+      stopsDiv.innerHTML = `<h2 style="font-size:clamp(16px,5vw,22px);text-align:center;">搜尋「${keyword}」結果</h2>`;
+
+      if (matchedStops.length === 0) {
+        stopsDiv.innerHTML += "<p>找不到相關車站</p>";
+        return;
+      }
+
+      matchedStops.forEach(stop => {
+        const stopDiv = document.createElement('div');
+        stopDiv.className = 'stop';
+        stopDiv.textContent = `${stop.name_tc} / ${stop.name_en}`;
+        stopDiv.onclick = () => showRoutesByStop(stop.stop, stopDiv);
+        stopsDiv.appendChild(stopDiv);
+      });
+    }
+
+    async function showRoutesByStop(stopId, stopDiv) {
+      const url = `https://data.etabus.gov.hk/v1/transport/kmb/route-stop`;
+      const res = await fetch(url);
+      const data = await res.json();
+
+      const routes = data.data.filter(r => r.stop === stopId);
+
+      const oldRoutes = stopDiv.querySelector('.eta');
+      if (oldRoutes) oldRoutes.remove();
+
+      const routeDiv = document.createElement('div');
+      routeDiv.className = 'eta';
+
+      if (routes.length > 0) {
+        routes.forEach(r => {
+          const span = document.createElement('span');
+          span.textContent = `路線 ${r.route} (${r.dir === 'O' ? '去程' : '回程'})`;
+          // 導向 getStops 並自動展開該站
+          span.onclick = () => {
+            document.getElementById('route').value = r.route;
+            currentDirection = (r.dir === 'O') ? 'outbound' : 'inbound';
+            getStops(stopId); // 傳入 stopId，讓 getStops 自動展開
+          };
+          routeDiv.appendChild(span);
+        });
+      } else {
+        routeDiv.textContent = "暫無路線資料";
+      }
+
+      stopDiv.appendChild(routeDiv);
+    }
+
+    async function getETA(stopId, route, stopDiv, dir) {
       const url = `https://data.etabus.gov.hk/v1/transport/kmb/eta/${stopId}/${route}/${serviceType}`;
       try {
         const response = await fetch(url);
         const data = await response.json();
 
-        const etaList = data.data;
-        const oldEta = stopDiv.querySelector('.eta');
-        if (oldEta) oldEta.remove();
+        const etaList = data.data || [];
+
+        const oldEtaDetail = stopDiv.querySelector('.eta-detail');
+        if (oldEtaDetail) oldEtaDetail.remove();
+
+        if (countdownTimers.has(stopDiv)) {
+          countdownTimers.get(stopDiv).forEach(id => clearInterval(id));
+          countdownTimers.delete(stopDiv);
+        }
 
         const etaDiv = document.createElement('div');
-        etaDiv.className = 'eta';
-
-        if (etaList && etaList.length > 0) {
-          etaList.forEach(e => {
-            const span = document.createElement('span');
-            if (e.eta) {
-              const etaTime = new Date(e.eta);
-              function updateCountdown() {
-                const now = new Date();
-                const diff = etaTime - now;
-                if (diff > 0) {
-                  const minutes = Math.floor(diff / 60000);
-                  const seconds = Math.floor((diff % 60000) / 1000);
-                  span.textContent = `🚌 ${minutes}分${seconds}秒 → ${e.dest_tc}`;
-                } else {
-                  span.textContent = "🚌 已到站";
-                }
-              }
-              updateCountdown();
-              setInterval(updateCountdown, 1000);
-            } else {
-              span.textContent = "暫無班次";
-            }
-            etaDiv.appendChild(span);
-          });
-        } else {
-          etaDiv.textContent = "暫無班次";
-        }
+        etaDiv.className = 'eta-detail';
         stopDiv.appendChild(etaDiv);
+
+        const listForDir = etaList.filter(e => e.dir === dir);
+
+        if (listForDir.length === 0) {
+          etaDiv.textContent = "暫無班次";
+          return;
+        }
+
+        const intervals = [];
+
+        listForDir.forEach(e => {
+          const row = document.createElement('span');
+          const remark = e.rmk_tc || e.rmk_en || "";
+          const dest = e.dest_tc || e.dest_en || "";
+
+          if (!e.eta) {
+            row.textContent = remark ? `暫無班次（${remark}）` : "暫無班次";
+            etaDiv.appendChild(row);
+            return;
+          }
+
+          const etaTime = new Date(e.eta);
+
+          function updateCountdown() {
+            const now = new Date();
+            const diff = etaTime - now;
+
+            if (diff > 0) {
+              const minutes = Math.floor(diff / 60000);
+              const seconds = Math.floor((diff % 60000) / 1000);
+
+              const timeText = minutes < 3
+                ? `${minutes}分${seconds}秒`
+                : `${minutes}分`;
+
+              row.textContent = `🚌 ${timeText} → ${dest}${remark ? `（${remark}）` : ""}`;
+            } else {
+              row.textContent = "🚌 已到站";
+            }
+          }
+
+          updateCountdown();
+          const id = setInterval(updateCountdown, 1000);
+          intervals.push(id);
+
+          etaDiv.appendChild(row);
+        });
+
+        countdownTimers.set(stopDiv, intervals);
+
+        // 高亮顯示展開的站
+        document.querySelectorAll('.stop').forEach(s => s.classList.remove('highlight'));
+        stopDiv.classList.add('highlight');
       } catch (error) {
         console.error(error);
+        const oldEtaDetail = stopDiv.querySelector('.eta-detail');
+        if (oldEtaDetail) oldEtaDetail.remove();
+        const etaDiv = document.createElement('div');
+        etaDiv.className = 'eta-detail';
+        etaDiv.textContent = "查詢失敗";
+        stopDiv.appendChild(etaDiv);
       }
     }
 
