@@ -236,6 +236,10 @@
         const data = await response.json();
 
         const etaList = data.data || [];
+		
+		// 收起其他已展開的站
+		document.querySelectorAll('.eta-detail').forEach(div => div.remove());
+		document.querySelectorAll('.stop').forEach(s => s.classList.remove('highlight'));
 
         const oldEtaDetail = stopDiv.querySelector('.eta-detail');
         if (oldEtaDetail) oldEtaDetail.remove();
