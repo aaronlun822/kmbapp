@@ -286,6 +286,34 @@
       animation: spin 0.8s linear infinite;
       margin: 0 auto 10px;
     }
+.switcher {
+  display: flex;
+  border: 1px solid #ddd;
+  border-radius: 50px;
+  overflow: hidden;
+}
+
+.switcher button {
+  flex: 1;
+  padding: 10px;
+  border: none;
+  background: #fff;
+  color: var(--text-main);
+  cursor: pointer;
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.switcher button.active {
+  background: var(--primary-color);
+  color: #fff;
+}
+.switcher button:not(:last-child) {
+  border-right: 1px solid #ddd;
+}
+
+
+
 
     @keyframes spin { to { transform: rotate(360deg); } }
 
@@ -294,14 +322,20 @@
 <body>
   <div id="toolbar">
     <h1>KMB 到站預報</h1>
-    <div class="input-group">
-      <input type="text" id="route" placeholder="輸入路線 (e.g. 1A) 或站名" onkeypress="handleEnter(event)">
-    </div>
-    <div class="action-buttons">
-      <button onclick="getStops()">📍 查詢路線</button>
-      <button class="secondary" onclick="searchByStopName()">🔍 搜站名</button>
-      <button class="secondary" onclick="toggleDirection()">⇅ 轉方向</button>
-    </div>
+<div class="input-group">
+  <input type="text" id="route" placeholder="輸入路線 (e.g. 1A) 或站名" onkeypress="handleEnter(event)">
+  <div id="switcher" class="switcher">
+    <button id="routeBtn" class="active" onclick="setSearchMode('route')">路線</button>
+    <button id="stopBtn" onclick="setSearchMode('stop')">站名</button>
+  </div>
+</div>
+
+<div class="action-buttons">
+  <button onclick="handleSearch()">🔍 搜尋</button>
+  <button class="secondary" onclick="toggleDirection()">⇅ 轉方向</button>
+</div>
+
+
   </div>
 
   <div id="content">
@@ -321,9 +355,27 @@
     const serviceType = 1;
     const countdownTimers = new Map();
 
+let searchMode = 'route';
+
+function setSearchMode(mode) {
+  searchMode = mode;
+  document.getElementById('routeBtn').classList.toggle('active', mode === 'route');
+  document.getElementById('stopBtn').classList.toggle('active', mode === 'stop');
+}
+
+function handleSearch() {
+  if (searchMode === 'route') {
+    getStops();
+  } else {
+    searchByStopName();
+  }
+}
+
+
+
     // 輔助功能：按 Enter 查詢
     function handleEnter(e) {
-      if (e.key === 'Enter') getStops();
+      if (e.key === 'Enter') handleSearch();
     }
 
     // 輔助功能：顯示/隱藏 Loading
@@ -418,90 +470,95 @@
       }
     }
 
-    async function searchByStopName() {
-      const keyword = document.getElementById('route').value.trim();
-      if (!keyword) {
-          alert("請輸入站名關鍵字");
-          return;
-      }
-      
-      showLoading(true);
-      const stopsDiv = document.getElementById('stops');
-      stopsDiv.innerHTML = "";
+async function searchByStopName() {
+  const keyword = document.getElementById('route').value.trim();
+  if (!keyword) {
+      alert("請輸入站名關鍵字");
+      return;
+  }
+  
+  showLoading(true);
+  const stopsDiv = document.getElementById('stops');
+  stopsDiv.innerHTML = "";
 
-      try {
-          const stopsUrl = `https://data.etabus.gov.hk/v1/transport/kmb/stop`;
-          const stopsRes = await fetch(stopsUrl);
-          const stopsData = await stopsRes.json();
+  try {
+      const stopsUrl = `https://data.etabus.gov.hk/v1/transport/kmb/stop`;
+      const stopsRes = await fetch(stopsUrl);
+      const stopsData = await stopsRes.json();
 
-          const matchedStops = stopsData.data.filter(s =>
-            s.name_tc.includes(keyword) || s.name_en.toLowerCase().includes(keyword.toLowerCase())
-          );
+      const matchedStops = stopsData.data.filter(s =>
+        s.name_tc.includes(keyword) || s.name_en.toLowerCase().includes(keyword.toLowerCase())
+      );
 
-          stopsDiv.innerHTML = `<h2>「${keyword}」搜尋結果</h2>`;
+      stopsDiv.innerHTML = `<h2>「${keyword}」搜尋結果</h2>`;
 
-          if (matchedStops.length === 0) {
-            stopsDiv.innerHTML += "<p style='text-align:center'>找不到相關車站</p>";
-          } else {
-              matchedStops.forEach(stop => {
-                const stopDiv = document.createElement('div');
-                stopDiv.className = 'stop';
-                stopDiv.setAttribute('data-seq', ''); // 保持一致的圓圈樣式
-                stopDiv.innerHTML = `<div class="stop-name">${stop.name_tc} <span style="font-size:0.8em; color:#888;">${stop.name_en}</span></div>`;
-
-                stopDiv.onclick = () => showRoutesByStop(stop.stop, stopDiv);
-                stopsDiv.appendChild(stopDiv);
-              });
-          }
-      } catch(e) {
-          stopsDiv.innerHTML = "<p style='text-align:center'>搜尋發生錯誤</p>";
-      } finally {
-          showLoading(false);
-      }
-    }
-
-    async function showRoutesByStop(stopId, stopDiv) {
-      // 避免重複點擊
-      if(stopDiv.querySelector('.eta')) return;
-
-      stopDiv.style.cursor = 'wait';
-      const url = `https://data.etabus.gov.hk/v1/transport/kmb/route-stop`;
-      const res = await fetch(url);
-      const data = await res.json();
-      stopDiv.style.cursor = 'default';
-
-      const routes = data.data.filter(r => r.stop === stopId);
-
-      // 清除舊的 (如果有)
-      const oldRoutes = stopDiv.querySelector('.eta');
-      if (oldRoutes) oldRoutes.remove();
-
-      const routeDiv = document.createElement('div');
-      routeDiv.className = 'eta-detail expanding'; 
-      routeDiv.style.display = 'block';
-
-      if (routes.length > 0) {
-        // 排序路線
-        routes.sort((a,b) => a.route.localeCompare(b.route, undefined, {numeric: true}));
-        
-        routes.forEach(r => {
-          const tag = document.createElement('span');
-          tag.className = 'route-tag';
-          tag.textContent = `${r.route}`;
-          tag.onclick = (e) => {
-            e.stopPropagation(); // 阻止冒泡
-            document.getElementById('route').value = r.route;
-            currentDirection = (r.dir === 'O') ? 'outbound' : 'inbound';
-            getStops(stopId);
-          };
-          routeDiv.appendChild(tag);
-        });
+      if (matchedStops.length === 0) {
+        stopsDiv.innerHTML += "<p style='text-align:center'>找不到相關車站</p>";
       } else {
-        routeDiv.textContent = "此站暫無路線資料";
-      }
+          matchedStops.forEach(stop => {
+            const stopDiv = document.createElement('div');
+            stopDiv.className = 'stop';
+            stopDiv.setAttribute('data-seq', ''); 
+            stopDiv.innerHTML = `<div class="stop-name">${stop.name_tc} <span style="font-size:0.8em; color:#888;">${stop.name_en}</span></div>`;
 
-      stopDiv.appendChild(routeDiv);
-    }
+            stopDiv.onclick = () => showRoutesByStop(stop.stop, stopDiv);
+            stopsDiv.appendChild(stopDiv);
+          });
+      }
+  } catch(e) {
+      stopsDiv.innerHTML = "<p style='text-align:center'>搜尋發生錯誤</p>";
+  } finally {
+      showLoading(false);
+  }
+}
+
+
+async function showRoutesByStop(stopId, stopDiv) {
+  // 如果已經高亮，避免重複觸發
+  if (stopDiv.classList.contains('highlight')) return;
+
+  // 收起其他已展開的站名
+  document.querySelectorAll('.eta-detail').forEach(div => div.remove());
+  document.querySelectorAll('.stop').forEach(s => s.classList.remove('highlight'));
+
+  stopDiv.classList.add('highlight');
+  stopDiv.style.cursor = 'wait';
+  const url = `https://data.etabus.gov.hk/v1/transport/kmb/route-stop`;
+  const res = await fetch(url);
+  const data = await res.json();
+  stopDiv.style.cursor = 'default';
+
+  const routes = data.data.filter(r => r.stop === stopId);
+
+  const routeDiv = document.createElement('div');
+  routeDiv.className = 'eta-detail expanding'; 
+  routeDiv.style.display = 'block';
+
+  if (routes.length > 0) {
+    routes.sort((a,b) => a.route.localeCompare(b.route, undefined, {numeric: true}));
+    
+    routes.forEach(r => {
+      const tag = document.createElement('span');
+      tag.className = 'route-tag';
+      tag.textContent = `${r.route}`;
+      tag.onclick = (e) => {
+        e.stopPropagation();
+        document.getElementById('route').value = r.route;
+        currentDirection = (r.dir === 'O') ? 'outbound' : 'inbound';
+        getStops(stopId); // 打開該站名
+        setTimeout(() => {
+          stopDiv.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        }, 600); // 等待渲染完成再滾動
+      };
+      routeDiv.appendChild(tag);
+    });
+  } else {
+    routeDiv.textContent = "此站暫無路線資料";
+  }
+
+  stopDiv.appendChild(routeDiv);
+}
+
 
     async function getETA(stopId, route, stopDiv, dir) {
       // 防止重複點擊同一站
