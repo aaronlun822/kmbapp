@@ -289,38 +289,35 @@
       animation: spin 0.8s linear infinite;
       margin: 0 auto 10px;
     }
-.switcher {
-  display: flex;
-  border: 1px solid #ddd;
-  border-radius: 50px;
-  overflow: hidden;
-}
+	.switcher {
+	  display: flex;
+	  border: 1px solid #ddd;
+	  border-radius: 50px;
+	  overflow: hidden;
+	}
 
-.switcher button {
-  flex: 1;
-  padding: 10px;
-  border: none;
-  background: #fff;
-  color: var(--text-main);
-  cursor: pointer;
-  font-size: 15px;
-  font-weight: 600;
-}
+	.switcher button {
+	  flex: 1;
+	  padding: 10px;
+	  border: none;
+	  background: #fff;
+	  color: var(--text-main);
+	  cursor: pointer;
+	  font-size: 15px;
+	  font-weight: 600;
+	}
 
-.switcher button.active {
-  background: var(--primary-color);
-  color: #fff;
-}
-.switcher button:not(:last-child) {
-  border-right: 1px solid #ddd;
-}
-
-
-
+	.switcher button.active {
+	  background: var(--primary-color);
+	  color: #fff;
+	}
+	.switcher button:not(:last-child) {
+	  border-right: 1px solid #ddd;
+	}
 
     @keyframes spin { to { transform: rotate(360deg); } }
 
-  </style>
+</style>
 </head>
 <body>
   <div id="toolbar">
@@ -337,7 +334,6 @@
   <button onclick="handleSearch()">🔍 搜尋</button>
   <button class="secondary" onclick="toggleDirection()">⇅ 轉方向</button>
 </div>
-
 
   </div>
 
@@ -357,8 +353,7 @@
     let currentDirection = 'outbound'; 
     const serviceType = 1;
     const countdownTimers = new Map();
-
-let searchMode = 'route';
+	let searchMode = 'route';
 
 // 放在最前面，方便其他函式呼叫
 async function fetchWithRetry(url, retries = 2) {
@@ -602,36 +597,51 @@ function renderRoutes(routes, routeDiv, stopDiv, stopId) {
   }
 }
 
+async function getETA(stopId, route, stopDiv, dir) {
+      // 1. 判斷這是不是「刷新」操作 (該車站已經是被點選狀態)
+      const isRefreshing = stopDiv.classList.contains('highlight');
 
-    async function getETA(stopId, route, stopDiv, dir) {
-      // 防止重複點擊同一站
-      if (stopDiv.classList.contains('highlight')) return;
+      // 2. 如果「不是」刷新 (代表點擊了一個新的車站)，才需要把其他舊的關掉
+      if (!isRefreshing) {
+          // 收起其他已展開的車站
+          document.querySelectorAll('.eta-detail').forEach(div => div.remove());
+          document.querySelectorAll('.stop').forEach(s => s.classList.remove('highlight'));
+          
+          // 高亮當前車站
+          stopDiv.classList.add('highlight');
+      }
+
+      // 3. 處理計時器：無論是新點擊還是刷新，都要先清除舊的倒數計時，避免記憶體洩漏或時間亂跳
+      if (countdownTimers.has(stopDiv)) {
+          countdownTimers.get(stopDiv).forEach(id => clearInterval(id));
+          countdownTimers.delete(stopDiv);
+      }
+
+      // 4. 準備顯示區域
+      let etaDiv;
+      
+      if (isRefreshing) {
+          // 如果是刷新，直接抓取現有的 div
+          etaDiv = stopDiv.querySelector('.eta-detail');
+      } else {
+          // 如果是新點擊，創建新的 div
+          etaDiv = document.createElement('div');
+          etaDiv.className = 'eta-detail';
+          stopDiv.appendChild(etaDiv);
+          // 加入動畫 class
+          requestAnimationFrame(() => etaDiv.classList.add('expanding'));
+      }
+
+      // 5. 顯示 Loading Spinner (讓使用者知道正在刷新)
+      etaDiv.innerHTML = '<div style="text-align:center; padding:10px;"><div class="spinner" style="width:16px;height:16px;border-width:2px;"></div><div style="font-size:12px;color:#999">正在更新...</div></div>';
 
       const url = `https://data.etabus.gov.hk/v1/transport/kmb/eta/${stopId}/${route}/${serviceType}`;
-      
-      // UI 處理：收起其他，並顯示讀取中
-      document.querySelectorAll('.eta-detail').forEach(div => div.remove());
-      document.querySelectorAll('.stop').forEach(s => s.classList.remove('highlight'));
-      
-      stopDiv.classList.add('highlight');
-
-      const etaDiv = document.createElement('div');
-      etaDiv.className = 'eta-detail';
-      etaDiv.innerHTML = '<div style="text-align:center; padding:10px;"><div class="spinner" style="width:16px;height:16px;border-width:2px;"></div></div>';
-      stopDiv.appendChild(etaDiv);
-      requestAnimationFrame(() => etaDiv.classList.add('expanding'));
 
       try {
         const response = await fetch(url);
         const data = await response.json();
         const etaList = data.data || [];
         const listForDir = etaList.filter(e => e.dir === dir);
-
-        // 清除之前的 Timer
-        if (countdownTimers.has(stopDiv)) {
-          countdownTimers.get(stopDiv).forEach(id => clearInterval(id));
-          countdownTimers.delete(stopDiv);
-        }
 
         etaDiv.innerHTML = ""; // 清空 Loading
 
@@ -672,13 +682,13 @@ function renderRoutes(routes, routeDiv, stopDiv, stopId) {
 
                 if (minutes === 0) {
                     timeEl.innerHTML = `${seconds}<small>秒</small>`;
-                    timeEl.style.color = "var(--primary-color)"; // 快到了，紅色
+                    timeEl.style.color = "var(--primary-color)"; 
                 } else if (minutes < 5) {
                      timeEl.innerHTML = `${minutes}<small>分</small>${seconds}<small>秒</small>`;
-                     timeEl.style.color = "#d66d00"; // 橙色
+                     timeEl.style.color = "#d66d00"; 
                 } else {
                     timeEl.innerHTML = `${minutes}<small>分</small>`;
-                    timeEl.style.color = "var(--text-main)"; // 普通
+                    timeEl.style.color = "var(--text-main)"; 
                 }
               } else {
                 timeEl.innerHTML = "已到達";
@@ -698,7 +708,7 @@ function renderRoutes(routes, routeDiv, stopDiv, stopId) {
 
       } catch (error) {
         console.error(error);
-        etaDiv.innerHTML = "查詢失敗";
+        etaDiv.innerHTML = "<div style='padding:10px; color:red; text-align:center'>更新失敗，請重試</div>";
       }
     }
 
