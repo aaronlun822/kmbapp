@@ -314,6 +314,24 @@
 	.switcher button:not(:last-child) {
 	  border-right: 1px solid #ddd;
 	}
+	
+	#history {
+  max-width: 600px;
+  margin-top: 6px;
+  width: 100%;
+  display: flex;
+  justify-content: flex-start; /* 靠左 */
+}
+#history > div {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+#content {
+  margin-top: calc(160px + 40px); /* 原本 toolbar 高度 + 查詢紀錄大約高度 */
+}
 
     @keyframes spin { to { transform: rotate(360deg); } }
 
@@ -327,6 +345,15 @@
   <div id="switcher" class="switcher">
     <button id="routeBtn" class="active" onclick="setSearchMode('route')">路線</button>
     <button id="stopBtn" onclick="setSearchMode('stop')">站名</button>
+  </div>
+</div>
+
+<div id="history" style="max-width:600px; margin-top:6px;">
+  <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
+    <span style="font-size:14px; color:#666;">查詢紀錄:</span>
+    <div id="history-items" style="display:flex; flex-wrap:wrap; gap:6px;">
+      <!-- 查詢紀錄按鈕會插入到這裡 -->
+    </div>
   </div>
 </div>
 
@@ -354,6 +381,30 @@
     const serviceType = 1;
     const countdownTimers = new Map();
 	let searchMode = 'route';
+	let searchHistory = [];
+	
+	// 頁面載入時讀取 LocalStorage
+window.addEventListener('DOMContentLoaded', () => {
+  const savedHistory = localStorage.getItem('searchHistory');
+  if (savedHistory) {
+    searchHistory = JSON.parse(savedHistory);
+    // 渲染已保存的紀錄
+    const container = document.getElementById('history-items');
+    container.innerHTML = "";
+    searchHistory.forEach(r => {
+      const btn = document.createElement('button');
+      btn.textContent = r;
+      btn.className = "secondary";
+      btn.style.flex = "none";
+      btn.onclick = () => {
+        document.getElementById('route').value = r;
+        getStops();
+      };
+      container.appendChild(btn);
+    });
+  }
+});
+
 
 // 放在最前面，方便其他函式呼叫
 async function fetchWithRetry(url, retries = 2) {
@@ -378,13 +429,11 @@ function setSearchMode(mode) {
 
 function handleSearch() {
   if (searchMode === 'route') {
-    getStops();
+    getStops(); // 記錄改到 getStops 成功後才寫入
   } else {
     searchByStopName();
   }
 }
-
-
 
     // 輔助功能：按 Enter 查詢
     function handleEnter(e) {
@@ -451,30 +500,30 @@ function handleSearch() {
 
         stopsDiv.innerHTML = `<h2>${titleText}</h2>`;
 
-        if (data.data && data.data.length > 0) {
-          // 為了效能，我們可以先 Render 框架，再非同步填入站名，或者一次處理
-          // 這裡簡單優化：並行獲取站名 (如果車站很多可能會有些微延遲，但在可接受範圍)
-          
-          for (const stop of data.data) {
-            // 注意：逐個 await 會慢，這裡保持原邏輯但建議之後優化。
-            // 為了視覺流暢，我們先創建元素
-            const stopNameHTML = await getStopName(stop.stop);
-            
-            const stopDiv = document.createElement('div');
-            stopDiv.className = 'stop';
-            stopDiv.setAttribute('data-seq', stop.seq); // 用於 CSS 顯示序號
-            stopDiv.innerHTML = `<div class="stop-name">${stopNameHTML}</div>`;
-            stopDiv.onclick = () => getETA(stop.stop, route, stopDiv, currentDirection === 'outbound' ? 'O' : 'I');
-            stopsDiv.appendChild(stopDiv);
+if (data.data && data.data.length > 0) {
+  // ✅ 成功 → 記錄到查詢紀錄
+  updateHistory(route);
 
-            if (highlightStopId && stop.stop === highlightStopId) {
-              getETA(stop.stop, route, stopDiv, currentDirection === 'outbound' ? 'O' : 'I');
-              stopDiv.scrollIntoView({ behavior: 'smooth', block: 'center' });
-            }
-          }
-        } else {
-          stopsDiv.innerHTML += "<p style='text-align:center'>找不到此路線資料，請確認路線號碼或方向。</p>";
-        }
+  for (const stop of data.data) {
+    const stopNameHTML = await getStopName(stop.stop);
+
+    const stopDiv = document.createElement('div');
+    stopDiv.className = 'stop';
+    stopDiv.setAttribute('data-seq', stop.seq);
+    stopDiv.innerHTML = `<div class="stop-name">${stopNameHTML}</div>`;
+    stopDiv.onclick = () => getETA(stop.stop, route, stopDiv, currentDirection === 'outbound' ? 'O' : 'I');
+    stopsDiv.appendChild(stopDiv);
+
+    if (highlightStopId && stop.stop === highlightStopId) {
+      getETA(stop.stop, route, stopDiv, currentDirection === 'outbound' ? 'O' : 'I');
+      stopDiv.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }
+  }
+} else {
+  // ❌ 查詢失敗 → 不記錄
+  stopsDiv.innerHTML += "<p style='text-align:center'>找不到此路線資料，請確認路線號碼或方向。</p>";
+}
+
       } catch (error) {
         console.error(error);
         stopsDiv.innerHTML = "<p style='text-align:center'>查詢失敗，請檢查網絡。</p>";
@@ -724,6 +773,41 @@ async function getETA(stopId, route, stopDiv, dir) {
           setTimeout(() => btn.textContent = '⇅ 轉方向', 1000);
       }
     }
+	
+function updateHistory(route) {
+  // 去重：移除既有項目，避免重覆
+  searchHistory = searchHistory.filter(r => r !== route);
+
+  // 最新的加到最前面
+  searchHistory.unshift(route);
+
+  // 保留最多 5 個
+  if (searchHistory.length > 5) {
+    searchHistory.pop();
+  }
+  
+  // ✅ 存到 LocalStorage
+  localStorage.setItem('searchHistory', JSON.stringify(searchHistory));
+
+  // 渲染按鈕到 #history-items
+  const container = document.getElementById('history-items');
+  if (!container) return;
+  container.innerHTML = "";
+
+  searchHistory.forEach(r => {
+    const btn = document.createElement('button');
+    btn.textContent = r;
+    btn.className = "secondary";
+    btn.style.flex = "none"; // 避免拉伸
+    btn.onclick = () => {
+      document.getElementById('route').value = r;
+      getStops(); // 正常流程，成功後會再次更新查詢紀錄（同一路線不會重覆）
+    };
+    container.appendChild(btn);
+  });
+}
+
+
   </script>
 </body>
 </html>
